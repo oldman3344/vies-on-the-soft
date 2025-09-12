@@ -30,7 +30,7 @@ jobs:
         pyinstaller --onefile --windowed --name="VAT验证工具" --icon=icon.ico vat_validator_gui.py
     
     - name: Upload EXE artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: VAT验证工具-Windows-EXE
         path: dist/VAT验证工具.exe
@@ -72,7 +72,7 @@ jobs:
         pyinstaller --onefile --name="VAT验证工具" vat_validator_gui.py
     
     - name: Upload Linux artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: VAT验证工具-Linux
         path: dist/VAT验证工具
@@ -98,7 +98,7 @@ jobs:
         pyinstaller --onefile --windowed --name="VAT验证工具" vat_validator_gui.py
     
     - name: Upload macOS artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: VAT验证工具-macOS
         path: dist/VAT验证工具
