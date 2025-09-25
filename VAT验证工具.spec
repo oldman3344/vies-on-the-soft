@@ -53,11 +53,11 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='icon.svg',  # 使用SVG图标文件
+    icon='favicon.ico',  # 使用SVG图标文件
 )
 app = BUNDLE(
     exe,
     name='VAT验证工具.app',
-    icon='icon.svg',
+    icon=favicon.ico,
     bundle_identifier=None,
 )
