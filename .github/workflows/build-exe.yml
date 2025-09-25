@@ -27,7 +27,7 @@ jobs:
     
     - name: Build EXE with PyInstaller
       run: |
-        pyinstaller --onefile --windowed --name="VAT验证工具" --icon=icon.ico vat_validator_gui.py
+        pyinstaller "VAT验证工具-Windows.spec"
     
     - name: Upload EXE artifact
       uses: actions/upload-artifact@v4
@@ -69,7 +69,7 @@ jobs:
     
     - name: Build Linux executable
       run: |
-        pyinstaller --onefile --name="VAT验证工具" vat_validator_gui.py
+        pyinstaller "VAT验证工具-Linux.spec"
     
     - name: Upload Linux artifact
       uses: actions/upload-artifact@v4
@@ -95,10 +95,10 @@ jobs:
     
     - name: Build macOS app
       run: |
-        pyinstaller --onefile --windowed --name="VAT验证工具" vat_validator_gui.py
+        pyinstaller "VAT验证工具.spec"
     
     - name: Upload macOS artifact
       uses: actions/upload-artifact@v4
       with:
         name: VAT验证工具-macOS
-        path: dist/VAT验证工具
+        path: dist/VAT验证工具.app

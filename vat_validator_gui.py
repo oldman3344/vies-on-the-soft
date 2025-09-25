@@ -307,7 +307,16 @@ class VATValidatorGUI(QMainWindow):
         super().__init__()
         self.results = []
         self.worker = None
-        self.init_ui()
+        
+        try:
+            print("正在初始化用户界面...")
+            self.init_ui()
+            print("✓ 用户界面初始化完成")
+        except Exception as e:
+            print(f"✗ 用户界面初始化失败: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
         
     def init_ui(self):
         """
@@ -391,19 +400,29 @@ class VATValidatorGUI(QMainWindow):
         layout.addWidget(self.tab_widget)
         
         # 单个验证标签页
+        print("正在创建单个验证标签页...")
         self.create_single_validation_tab()
+        print("✓ 单个验证标签页创建完成")
         
         # 批量验证标签页
+        print("正在创建批量验证标签页...")
         self.create_batch_validation_tab()
+        print("✓ 批量验证标签页创建完成")
         
         # 结果查看标签页
+        print("正在创建结果查看标签页...")
         self.create_results_tab()
+        print("✓ 结果查看标签页创建完成")
         
         # 请求日志标签页
+        print("正在创建请求日志标签页...")
         self.create_log_tab()
+        print("✓ 请求日志标签页创建完成")
         
         # 文档处理标签页
+        print("正在创建文档处理标签页...")
         self.create_document_processing_tab()
+        print("✓ 文档处理标签页创建完成")
         
         # 状态栏
         self.status_bar = QStatusBar()
@@ -1396,17 +1415,53 @@ class VATValidatorGUI(QMainWindow):
 
 
 def main():
-    app = QApplication(sys.argv)
-    app.setApplicationName("VAT验证工具")
-    app.setApplicationVersion("2.0")
-    
-    # 设置应用图标（如果有的话）
-    # app.setWindowIcon(QIcon('icon.png'))
-    
-    window = VATValidatorGUI()
-    window.show()
-    
-    sys.exit(app.exec_())
+    try:
+        app = QApplication(sys.argv)
+        app.setApplicationName("VAT验证工具")
+        app.setApplicationVersion("2.0")
+        
+        # 设置应用图标（如果有的话）
+        # app.setWindowIcon(QIcon('icon.png'))
+        
+        print("正在初始化VAT验证工具...")
+        
+        # 检查关键模块是否可用
+        try:
+            from document_processor import DocumentProcessor, create_default_column_mapping
+            print("✓ document_processor模块加载成功")
+        except ImportError as e:
+            print(f"✗ document_processor模块加载失败: {e}")
+            QMessageBox.critical(None, "模块加载错误", f"无法加载document_processor模块: {e}")
+            return
+        
+        try:
+            import openpyxl
+            print("✓ openpyxl模块加载成功")
+        except ImportError as e:
+            print(f"✗ openpyxl模块加载失败: {e}")
+            QMessageBox.critical(None, "模块加载错误", f"无法加载openpyxl模块: {e}")
+            return
+        
+        window = VATValidatorGUI()
+        print("✓ 主窗口创建成功")
+        
+        window.show()
+        print("✓ 应用程序启动成功")
+        
+        sys.exit(app.exec_())
+        
+    except Exception as e:
+        print(f"✗ 应用程序启动失败: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # 尝试显示错误对话框
+        try:
+            if 'app' not in locals():
+                app = QApplication(sys.argv)
+            QMessageBox.critical(None, "启动错误", f"应用程序启动失败:\n{str(e)}\n\n请检查控制台输出获取详细信息。")
+        except:
+            pass
 
 if __name__ == "__main__":
     main()
