@@ -20,9 +20,20 @@ def main():
         sys.exit(1)
     
     # 检查spec文件
-    spec_file = "VAT验证工具-Windows.spec"
-    if not os.path.exists(spec_file):
-        print(f"❌ 错误：找不到 {spec_file} 文件")
+    spec_files = ["VAT验证工具-Windows.spec", "VAT验证工具.spec"]
+    spec_file = None
+    
+    for file in spec_files:
+        if os.path.exists(file):
+            spec_file = file
+            print(f"✅ 找到spec文件：{spec_file}")
+            break
+    
+    if not spec_file:
+        print("❌ 错误：找不到任何spec文件")
+        print("请确保存在以下文件之一：")
+        for file in spec_files:
+            print(f"  - {file}")
         sys.exit(1)
     
     # 检查PyInstaller
