@@ -58,6 +58,6 @@ exe = EXE(
 app = BUNDLE(
     exe,
     name='VAT验证工具.app',
-    icon=favicon.ico,
+    icon='favicon.ico',
     bundle_identifier=None,
 )
