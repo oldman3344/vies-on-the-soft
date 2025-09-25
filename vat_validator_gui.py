@@ -21,10 +21,12 @@ from PyQt5.QtWidgets import (
     QMessageBox, QComboBox, QGroupBox, QGridLayout, QSplitter,
     QHeaderView, QStatusBar, QFrame, QCheckBox
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt5.QtGui import QFont, QIcon, QPalette, QColor
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QPropertyAnimation, QRect
+from PyQt5.QtGui import QFont, QIcon, QPalette, QColor, QPainter, QPen, QMovie
 from openpyxl import load_workbook, Workbook
 from document_processor import DocumentProcessor, create_default_column_mapping
+
+
 
 class VATValidationWorker(QThread):
     """
@@ -1105,33 +1107,53 @@ class VATValidatorGUI(QMainWindow):
         options_group = QGroupBox("处理选项")
         options_layout = QGridLayout(options_group)
         
-        options_layout.addWidget(QLabel("填充行数:"), 0, 0)
-        self.fill_rows_input = QLineEdit("5")
-        self.fill_rows_input.setPlaceholderText("要填充的数据行数（默认5行）")
-        options_layout.addWidget(self.fill_rows_input, 0, 1)
+        # 添加自动检测说明
+        auto_detect_label = QLabel("📊 自动检测模式：程序将自动识别并处理Excel中所有有效数据行")
+        auto_detect_label.setStyleSheet("color: #2E8B57; font-weight: bold; padding: 8px; background-color: #F0FFF0; border-radius: 4px;")
+        options_layout.addWidget(auto_detect_label, 0, 0, 1, 2)
         
-        options_layout.addWidget(QLabel("表格索引:"), 1, 0)
-        self.table_index_input = QLineEdit("0")
-        self.table_index_input.setPlaceholderText("Word文档中表格的索引（默认第一个表格）")
-        options_layout.addWidget(self.table_index_input, 1, 1)
+        options_layout.addWidget(QLabel("Excel工作表:"), 1, 0)
+        self.sheet_selector = QComboBox()
+        self.sheet_selector.setPlaceholderText("选择Excel工作表")
+        self.sheet_selector.addItem("默认第一个工作表", None)
+        options_layout.addWidget(self.sheet_selector, 1, 1)
         
         layout.addWidget(options_group)
         
         # 处理按钮组
         process_group = QGroupBox("文档处理")
-        process_layout = QHBoxLayout(process_group)
+        process_layout = QVBoxLayout(process_group)
+        
+        # 按钮行
+        button_layout = QHBoxLayout()
         
         self.process_doc_btn = QPushButton("开始处理文档")
         self.process_doc_btn.clicked.connect(self.process_documents)
         self.process_doc_btn.setEnabled(False)
-        process_layout.addWidget(self.process_doc_btn)
+        button_layout.addWidget(self.process_doc_btn)
         
-        self.download_btn = QPushButton("下载处理后的文档")
-        self.download_btn.clicked.connect(self.download_processed_doc)
-        self.download_btn.setEnabled(False)
-        process_layout.addWidget(self.download_btn)
+        # 保存按钮
+        self.save_btn = QPushButton("保存处理后的文档")
+        self.save_btn.clicked.connect(self.save_processed_doc)
+        self.save_btn.setEnabled(False)
+        button_layout.addWidget(self.save_btn)
         
-        process_layout.addStretch()
+        button_layout.addStretch()
+        process_layout.addLayout(button_layout)
+        
+        # 进度条和状态
+        progress_layout = QHBoxLayout()
+        
+        self.process_progress = QProgressBar()
+        self.process_progress.setVisible(False)
+        self.process_progress.setRange(0, 0)  # 不确定进度的进度条
+        progress_layout.addWidget(self.process_progress)
+        
+        self.process_status_label = QLabel("")
+        self.process_status_label.setStyleSheet("color: #666; font-style: italic;")
+        progress_layout.addWidget(self.process_status_label)
+        
+        process_layout.addLayout(progress_layout)
         
         layout.addWidget(process_group)
         
@@ -1165,7 +1187,43 @@ class VATValidatorGUI(QMainWindow):
             self.excel_path_label.setText(os.path.basename(file_path))
             self.excel_path_label.setStyleSheet("color: #000;")
             self.excel_file_for_doc = file_path
+            
+            # 自动检测并填充工作表列表
+            self.load_excel_sheets(file_path)
+            
             self.check_files_ready()
+    
+    def load_excel_sheets(self, excel_path: str):
+        """
+        加载Excel文件的工作表列表
+        """
+        try:
+            # 清空现有选项
+            self.sheet_selector.clear()
+            
+            # 添加默认选项
+            self.sheet_selector.addItem("默认第一个工作表", None)
+            
+            # 获取工作表列表
+            sheets = self.document_processor.get_excel_sheets(excel_path)
+            
+            if sheets:
+                # 添加所有工作表
+                for sheet_name in sheets:
+                    self.sheet_selector.addItem(f"📋 {sheet_name}", sheet_name)
+                
+                # 如果只有一个工作表，自动选择它
+                if len(sheets) == 1:
+                    self.sheet_selector.setCurrentIndex(1)  # 选择第一个实际工作表
+                
+                self.doc_result_text.append(f"✅ 检测到 {len(sheets)} 个工作表: {', '.join(sheets)}")
+            else:
+                self.doc_result_text.append("⚠️ 无法检测到工作表，将使用默认第一个工作表")
+                
+        except Exception as e:
+            self.doc_result_text.append(f"❌ 检测工作表时出错: {str(e)}")
+            # 保留默认选项
+            pass
     
     def browse_word_template(self):
         """
@@ -1196,13 +1254,36 @@ class VATValidatorGUI(QMainWindow):
         处理文档 - 将Excel数据填充到Word表格
         """
         try:
-            # 获取处理参数
-            fill_rows = int(self.fill_rows_input.text() or "5")
-            table_index = int(self.table_index_input.text() or "0")
+            # 检查是否有正在处理的任务
+            if hasattr(self, 'is_processing') and self.is_processing:
+                QMessageBox.information(self, "提示", "文档正在处理中，请稍候...")
+                return
             
+            # 检查是否已有处理结果，询问是否重新处理
+            if hasattr(self, 'processed_doc_path') and self.processed_doc_path:
+                reply = QMessageBox.question(
+                    self, "确认重新处理", 
+                    "已有处理完成的文档，是否要重新处理？\n重新处理将覆盖之前的结果。",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                if reply == QMessageBox.No:
+                    return
+            
+            # 开始处理
+            self.is_processing = True
+            selected_sheet = self.sheet_selector.currentData()
+            
+            # 更新UI状态
+            start_time = datetime.now()
             self.doc_result_text.clear()
-            self.doc_result_text.append("开始处理文档...")
+            self.doc_result_text.append(f"🔄 开始处理文档... [{start_time.strftime('%Y-%m-%d %H:%M:%S')}]")
             self.process_doc_btn.setEnabled(False)
+            self.process_doc_btn.setText("处理中...")
+            self.save_btn.setEnabled(False)
+            
+            # 显示状态
+            self.process_status_label.setText("正在处理文档，请稍候...")
             
             # 生成临时输出路径
             temp_output_path = os.path.join(
@@ -1213,41 +1294,60 @@ class VATValidatorGUI(QMainWindow):
             # 获取字段映射
             column_mapping = create_default_column_mapping()
             
+            self.doc_result_text.append(f"📊 使用工作表: {selected_sheet or '默认第一个工作表'}")
+            self.process_status_label.setText("正在读取Excel数据...")
+            
             # 执行文档处理
             result = self.document_processor.process_documents(
                 excel_path=self.excel_file_for_doc,
                 word_template_path=self.word_template_file,
                 output_path=temp_output_path,
-                max_rows=fill_rows,
-                table_index=table_index,
+                sheet_name=selected_sheet,
                 column_mapping=column_mapping
             )
             
             if result['success']:
+                end_time = datetime.now()
                 self.processed_doc_path = result['output_path']
-                self.doc_result_text.append(f"✅ 文档处理成功！")
+                self.doc_result_text.append(f"✅ 文档处理成功！ [{end_time.strftime('%Y-%m-%d %H:%M:%S')}]")
                 self.doc_result_text.append(f"📄 处理了 {result['rows_filled']} 行数据")
-                self.doc_result_text.append(f"💾 输出文件: {os.path.basename(result['output_path'])}")
-                self.download_btn.setEnabled(True)
+                self.doc_result_text.append(f"💾 临时文件: {os.path.basename(result['output_path'])}")
+                self.doc_result_text.append(f"📁 文件位置: {os.path.dirname(result['output_path'])}")
+                
+                # 启用保存按钮
+                self.save_btn.setEnabled(True)
+                
+                self.process_status_label.setText("处理完成！可以保存文档")
                 self.status_bar.showMessage("文档处理完成")
             else:
-                self.doc_result_text.append(f"❌ 处理失败: {result['error']}")
+                error_time = datetime.now()
+                self.doc_result_text.append(f"❌ 处理失败: {result['error']} [{error_time.strftime('%Y-%m-%d %H:%M:%S')}]")
+                self.process_status_label.setText("处理失败")
                 self.status_bar.showMessage("文档处理失败")
                 
         except ValueError as e:
+            error_time = datetime.now()
+            self.doc_result_text.append(f"❌ 参数错误: {str(e)} [{error_time.strftime('%Y-%m-%d %H:%M:%S')}]")
             QMessageBox.warning(self, "参数错误", f"请输入有效的数字: {str(e)}")
+            self.process_status_label.setText("参数错误")
         except Exception as e:
-            self.doc_result_text.append(f"❌ 处理过程中发生错误: {str(e)}")
+            error_time = datetime.now()
+            self.doc_result_text.append(f"❌ 处理过程中发生错误: {str(e)} [{error_time.strftime('%Y-%m-%d %H:%M:%S')}]")
             QMessageBox.critical(self, "处理错误", f"文档处理失败: {str(e)}")
+            self.process_status_label.setText("处理出错")
         finally:
+            # 恢复UI状态
+            self.is_processing = False
             self.process_doc_btn.setEnabled(True)
+            self.process_doc_btn.setText("开始处理文档")
+            self.process_status_label.setText("")
     
-    def download_processed_doc(self):
+    def save_processed_doc(self):
         """
-        下载处理后的文档
+        保存处理后的文档到用户指定位置
         """
         if not self.processed_doc_path or not os.path.exists(self.processed_doc_path):
-            QMessageBox.warning(self, "警告", "没有可下载的文档")
+            QMessageBox.warning(self, "警告", "没有可保存的文档")
             return
         
         # 选择保存位置
@@ -1258,13 +1358,42 @@ class VATValidatorGUI(QMainWindow):
         
         if save_path:
             try:
+                # 检查文件是否已存在
+                if os.path.exists(save_path):
+                    reply = QMessageBox.question(
+                        self, "文件已存在", 
+                        f"文件 {os.path.basename(save_path)} 已存在，是否覆盖？",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No
+                    )
+                    if reply == QMessageBox.No:
+                        return
+                
                 # 复制文件到用户选择的位置
-                import shutil
                 shutil.copy2(self.processed_doc_path, save_path)
-                QMessageBox.information(self, "成功", f"文档已保存到:\n{save_path}")
+                
+                # 询问是否删除临时文件
+                reply = QMessageBox.question(
+                    self, "保存成功", 
+                    f"文档已保存到:\n{save_path}\n\n是否删除临时文件？",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.Yes
+                )
+                
+                if reply == QMessageBox.Yes:
+                    try:
+                        os.remove(self.processed_doc_path)
+                        self.doc_result_text.append("🗑️ 临时文件已删除")
+                        self.processed_doc_path = save_path  # 更新为新的文件路径
+                    except Exception as e:
+                        self.doc_result_text.append(f"⚠️ 删除临时文件失败: {str(e)}")
+                
                 self.status_bar.showMessage(f"文档已保存: {os.path.basename(save_path)}")
+                self.doc_result_text.append(f"💾 文档已保存到: {save_path}")
+                
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"保存文档失败: {str(e)}")
+
 
 def main():
     app = QApplication(sys.argv)

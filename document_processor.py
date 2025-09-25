@@ -70,10 +70,105 @@ class DocumentProcessor:
         except Exception as e:
             logger.warning(f"设置表格边框时出错: {e}")
             # 如果设置边框失败，继续执行，不影响主要功能
+    
+    def set_row_dashed_borders(self, row):
+        """
+        设置表格行的边框为虚线
+        
+        Args:
+            row: Word表格行对象
+        """
+        try:
+            for cell in row.cells:
+                # 获取单元格属性
+                tc_pr = cell._tc.tcPr
+                if tc_pr is None:
+                    tc_pr = OxmlElement('w:tcPr')
+                    cell._tc.insert(0, tc_pr)
+                
+                # 构建虚线边框XML
+                borders_xml = '''
+                <w:tcBorders xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                    <w:top w:val="dashed" w:sz="4" w:space="0" w:color="000000"/>
+                    <w:left w:val="dashed" w:sz="4" w:space="0" w:color="000000"/>
+                    <w:bottom w:val="dashed" w:sz="4" w:space="0" w:color="000000"/>
+                    <w:right w:val="dashed" w:sz="4" w:space="0" w:color="000000"/>
+                </w:tcBorders>
+                '''
+                
+                # 解析XML并添加到单元格属性中
+                from docx.oxml import parse_xml
+                borders_element = parse_xml(borders_xml)
+                
+                # 移除现有的边框设置
+                existing_borders = tc_pr.find(qn('w:tcBorders'))
+                if existing_borders is not None:
+                    tc_pr.remove(existing_borders)
+                
+                # 添加新的边框设置
+                tc_pr.append(borders_element)
+            
+            logger.info("行边框已设置为虚线")
+            
+        except Exception as e:
+            logger.warning(f"设置行虚线边框时出错: {e}")
+
+    def add_material_info_row(self, table):
+        """
+        在表格末尾添加申报材料说明行
+        
+        Args:
+            table: Word表格对象
+        """
+        try:
+            # 添加新行
+            new_row = table.add_row()
+            
+            # 合并所有单元格
+            if len(new_row.cells) > 1:
+                # 合并第一个单元格和其他所有单元格
+                merged_cell = new_row.cells[0]
+                for i in range(1, len(new_row.cells)):
+                    merged_cell.merge(new_row.cells[i])
+            
+            # 设置文本内容 - 分为两部分设置不同样式
+            cell = new_row.cells[0]
+            
+            # 清空默认文本
+            cell.text = ""
+            
+            # 获取段落
+            paragraph = cell.paragraphs[0]
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            
+            # 第一部分：申报需提供以下材料： - 加大加粗黑色
+            title_run = paragraph.add_run("申报需提供以下材料：")
+            title_run.font.size = Pt(12)  # 加大字体
+            title_run.font.name = '宋体'
+            title_run.font.bold = True  # 加粗
+            title_run.font.color.rgb = None  # 黑色（默认）
+            
+            # 第二部分：括号内容 - 红色加粗，与标题字体大小一致
+            content_run = paragraph.add_run("（下载时间：9月03号开始，请在9月05日前提供，如不及时申报，平台造成的后果smk不承任何责任）")
+            content_run.font.size = Pt(12)  # 与标题字体大小一致
+            content_run.font.name = '宋体'
+            content_run.font.bold = True  # 加粗
+            
+            # 设置红色
+            from docx.shared import RGBColor
+            content_run.font.color.rgb = RGBColor(255, 0, 0)  # 红色
+            
+            # 设置虚线边框
+            self.set_row_dashed_borders(new_row)
+            
+            logger.info("已添加申报材料说明行")
+            
+        except Exception as e:
+            logger.warning(f"添加申报材料说明行时出错: {e}")
         
     def extract_excel_data(self, excel_path: str, sheet_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        从Excel文件中提取数据
+        从Excel文件中提取数据 - 自动检测所有有效数据行
         
         Args:
             excel_path: Excel文件路径
@@ -90,32 +185,66 @@ class DocumentProcessor:
                 df = pd.read_excel(excel_path)
             
             logger.info(f"成功读取Excel文件: {excel_path}")
-            logger.info(f"数据形状: {df.shape}")
+            logger.info(f"原始数据形状: {df.shape}")
             logger.info(f"列名: {list(df.columns)}")
             
-            # 清理数据，移除空行
+            # 第一步：移除完全空白的行
             df = df.dropna(how='all')
+            logger.info(f"移除空行后数据形状: {df.shape}")
             
-            # 转换为字典列表
+            # 第二步：智能过滤有效数据行
             data_list = []
             for idx, row in df.iterrows():
-                # 过滤包含VAT信息的行
                 row_dict = row.to_dict()
-                row_str = str(row.to_list()).lower()
                 
-                if 'vat' in row_str:
+                # 检查行是否包含有效数据
+                has_valid_data = False
+                non_empty_values = 0
+                
+                for key, value in row_dict.items():
+                    if not pd.isna(value) and str(value).strip():
+                        non_empty_values += 1
+                        # 检查是否包含VAT相关信息或其他有效业务数据
+                        value_str = str(value).lower().strip()
+                        if ('vat' in value_str or 
+                            len(value_str) > 2 or  # 有意义的文本
+                            value_str.replace('.', '').replace(',', '').replace('-', '').isdigit()):  # 数字数据
+                            has_valid_data = True
+                
+                # 如果行有足够的非空数据且包含有效信息，则包含此行
+                if has_valid_data and non_empty_values >= 2:  # 至少2个非空字段
                     # 清理数据，将NaN替换为空字符串
                     cleaned_row = {}
                     for key, value in row_dict.items():
                         if pd.isna(value):
                             cleaned_row[key] = ""
                         else:
-                            cleaned_row[key] = str(value)
+                            cleaned_row[key] = str(value).strip()
                     
                     data_list.append(cleaned_row)
             
             self.excel_data = data_list
-            logger.info(f"提取到 {len(data_list)} 行VAT相关数据")
+            logger.info(f"✅ 自动检测并提取到 {len(data_list)} 行有效数据")
+            
+            # 如果没有找到数据，尝试更宽松的条件
+            if not data_list:
+                logger.warning("未找到符合条件的数据，尝试更宽松的筛选条件...")
+                for idx, row in df.iterrows():
+                    row_dict = row.to_dict()
+                    non_empty_count = sum(1 for v in row_dict.values() 
+                                        if not pd.isna(v) and str(v).strip())
+                    
+                    if non_empty_count >= 1:  # 至少1个非空字段
+                        cleaned_row = {}
+                        for key, value in row_dict.items():
+                            if pd.isna(value):
+                                cleaned_row[key] = ""
+                            else:
+                                cleaned_row[key] = str(value).strip()
+                        data_list.append(cleaned_row)
+                
+                self.excel_data = data_list
+                logger.info(f"📋 使用宽松条件提取到 {len(data_list)} 行数据")
             
             return data_list
             
@@ -123,28 +252,43 @@ class DocumentProcessor:
             logger.error(f"提取Excel数据时出错: {e}")
             raise
     
+    def get_excel_sheets(self, excel_path: str) -> List[str]:
+        """
+        获取Excel文件中所有工作表的名称
+        
+        Args:
+            excel_path: Excel文件路径
+            
+        Returns:
+            工作表名称列表
+        """
+        try:
+            excel_file = pd.ExcelFile(excel_path)
+            return excel_file.sheet_names
+        except Exception as e:
+            logger.error(f"获取Excel工作表列表失败: {e}")
+            return []
+
     def get_excel_columns(self, excel_path: str, sheet_name: Optional[str] = None) -> List[str]:
         """
         获取Excel文件的列名
         
         Args:
             excel_path: Excel文件路径
-            sheet_name: 工作表名称
+            sheet_name: 工作表名称，如果为None则使用第一个工作表
             
         Returns:
             列名列表
         """
         try:
             if sheet_name:
-                df = pd.read_excel(excel_path, sheet_name=sheet_name)
+                df = pd.read_excel(excel_path, sheet_name=sheet_name, nrows=0)
             else:
-                df = pd.read_excel(excel_path)
-            
+                df = pd.read_excel(excel_path, nrows=0)
             return list(df.columns)
-            
         except Exception as e:
-            logger.error(f"获取Excel列名时出错: {e}")
-            raise
+            logger.error(f"获取Excel列名失败: {e}")
+            return []
     
     def analyze_word_document(self, word_path: str) -> Dict[str, Any]:
         """
@@ -277,6 +421,9 @@ class DocumentProcessor:
             # 设置表格边框为实线
             self.set_table_borders(table)
             
+            # 添加申报材料说明行
+            self.add_material_info_row(table)
+            
             # 保存文档
             doc.save(output_path)
             logger.info(f"Word文档已保存到: {output_path}")
@@ -288,38 +435,35 @@ class DocumentProcessor:
             raise
     
     def process_documents(self, excel_path: str, word_template_path: str, 
-                         output_path: str, table_index: int = 0,
-                         column_mapping: Optional[Dict[str, str]] = None,
-                         max_rows: Optional[int] = None) -> Dict[str, Any]:
+                         output_path: str, sheet_name: Optional[str] = None,
+                         column_mapping: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
-        完整的文档处理流程
+        完整的文档处理流程 - 自动处理所有有效数据行
         
         Args:
             excel_path: Excel文件路径
             word_template_path: Word模板路径
             output_path: 输出文件路径
-            table_index: 表格索引
+            sheet_name: Excel工作表名称，如果为None则使用第一个工作表
             column_mapping: 列映射
-            max_rows: 最大处理行数
             
         Returns:
             包含处理结果的字典
         """
         try:
-            # 1. 提取Excel数据
-            excel_data = self.extract_excel_data(excel_path)
+            # 1. 提取Excel数据（自动检测所有有效行）
+            excel_data = self.extract_excel_data(excel_path, sheet_name)
             
             if not excel_data:
                 return {
                     'success': False,
                     'error': '未找到有效的Excel数据',
                     'output_path': None,
-                    'rows_filled': 0
+                    'rows_filled': 0,
+                    'total_rows_detected': 0
                 }
             
-            # 限制行数
-            if max_rows and max_rows > 0:
-                excel_data = excel_data[:max_rows]
+            logger.info(f"🎯 将处理所有检测到的 {len(excel_data)} 行有效数据")
             
             # 2. 分析Word文档
             word_analysis = self.analyze_word_document(word_template_path)
@@ -335,16 +479,17 @@ class DocumentProcessor:
                 word_template_path, 
                 excel_data, 
                 output_path, 
-                table_index, 
+                0, 
                 column_mapping
             )
             
-            logger.info(f"文档处理完成，输出文件: {result_path}")
+            logger.info(f"✅ 文档处理完成，输出文件: {result_path}")
             return {
                 'success': True,
                 'error': None,
                 'output_path': result_path,
-                'rows_filled': len(excel_data)
+                'rows_filled': len(excel_data),
+                'total_rows_detected': len(excel_data)
             }
             
         except Exception as e:
@@ -353,7 +498,8 @@ class DocumentProcessor:
                 'success': False,
                 'error': str(e),
                 'output_path': None,
-                'rows_filled': 0
+                'rows_filled': 0,
+                'total_rows_detected': 0
             }
 
 
@@ -401,7 +547,7 @@ if __name__ == "__main__":
             column_mapping = create_default_column_mapping()
             result = processor.process_documents(
                 excel_path, word_path, output_path, 
-                table_index=0, column_mapping=column_mapping
+                sheet_name=None, column_mapping=column_mapping
             )
             print(f"处理完成，输出文件: {result}")
         else:
