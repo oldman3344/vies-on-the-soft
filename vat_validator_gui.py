@@ -10,6 +10,7 @@ import os
 import requests
 import json
 import time
+import shutil
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
@@ -23,6 +24,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QFont, QIcon, QPalette, QColor
 from openpyxl import load_workbook, Workbook
+from document_processor import DocumentProcessor, create_default_column_mapping
 
 class VATValidationWorker(QThread):
     """
@@ -397,6 +399,9 @@ class VATValidatorGUI(QMainWindow):
         
         # 请求日志标签页
         self.create_log_tab()
+        
+        # 文档处理标签页
+        self.create_document_processing_tab()
         
         # 状态栏
         self.status_bar = QStatusBar()
@@ -1058,6 +1063,208 @@ class VATValidatorGUI(QMainWindow):
         """
         self.search_input.clear()
         # filter_results会通过textChanged信号自动调用
+    
+    def create_document_processing_tab(self):
+        """
+        创建文档处理标签页
+        """
+        tab = QWidget()
+        self.tab_widget.addTab(tab, "文档处理")
+        
+        layout = QVBoxLayout(tab)
+        layout.setSpacing(20)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 文件上传组
+        upload_group = QGroupBox("文件上传")
+        upload_layout = QGridLayout(upload_group)
+        
+        # Excel文件选择
+        upload_layout.addWidget(QLabel("Excel文件:"), 0, 0)
+        self.excel_path_label = QLabel("未选择文件")
+        self.excel_path_label.setStyleSheet("color: #666; font-style: italic;")
+        upload_layout.addWidget(self.excel_path_label, 0, 1)
+        
+        self.browse_excel_btn = QPushButton("选择Excel文件")
+        self.browse_excel_btn.clicked.connect(self.browse_excel_for_doc)
+        upload_layout.addWidget(self.browse_excel_btn, 0, 2)
+        
+        # Word模板文件选择
+        upload_layout.addWidget(QLabel("Word模板:"), 1, 0)
+        self.word_path_label = QLabel("未选择文件")
+        self.word_path_label.setStyleSheet("color: #666; font-style: italic;")
+        upload_layout.addWidget(self.word_path_label, 1, 1)
+        
+        self.browse_word_btn = QPushButton("选择Word模板")
+        self.browse_word_btn.clicked.connect(self.browse_word_template)
+        upload_layout.addWidget(self.browse_word_btn, 1, 2)
+        
+        layout.addWidget(upload_group)
+        
+        # 处理选项组
+        options_group = QGroupBox("处理选项")
+        options_layout = QGridLayout(options_group)
+        
+        options_layout.addWidget(QLabel("填充行数:"), 0, 0)
+        self.fill_rows_input = QLineEdit("5")
+        self.fill_rows_input.setPlaceholderText("要填充的数据行数（默认5行）")
+        options_layout.addWidget(self.fill_rows_input, 0, 1)
+        
+        options_layout.addWidget(QLabel("表格索引:"), 1, 0)
+        self.table_index_input = QLineEdit("0")
+        self.table_index_input.setPlaceholderText("Word文档中表格的索引（默认第一个表格）")
+        options_layout.addWidget(self.table_index_input, 1, 1)
+        
+        layout.addWidget(options_group)
+        
+        # 处理按钮组
+        process_group = QGroupBox("文档处理")
+        process_layout = QHBoxLayout(process_group)
+        
+        self.process_doc_btn = QPushButton("开始处理文档")
+        self.process_doc_btn.clicked.connect(self.process_documents)
+        self.process_doc_btn.setEnabled(False)
+        process_layout.addWidget(self.process_doc_btn)
+        
+        self.download_btn = QPushButton("下载处理后的文档")
+        self.download_btn.clicked.connect(self.download_processed_doc)
+        self.download_btn.setEnabled(False)
+        process_layout.addWidget(self.download_btn)
+        
+        process_layout.addStretch()
+        
+        layout.addWidget(process_group)
+        
+        # 处理结果显示
+        result_group = QGroupBox("处理结果")
+        result_layout = QVBoxLayout(result_group)
+        
+        self.doc_result_text = QTextEdit()
+        self.doc_result_text.setMaximumHeight(300)
+        self.doc_result_text.setReadOnly(True)
+        result_layout.addWidget(self.doc_result_text)
+        
+        layout.addWidget(result_group)
+        
+        # 添加弹性空间
+        layout.addStretch()
+        
+        # 初始化文档处理器
+        self.document_processor = DocumentProcessor()
+        self.processed_doc_path = None
+    
+    def browse_excel_for_doc(self):
+        """
+        为文档处理选择Excel文件
+        """
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择Excel文件", "", "Excel文件 (*.xlsx *.xls)"
+        )
+        
+        if file_path:
+            self.excel_path_label.setText(os.path.basename(file_path))
+            self.excel_path_label.setStyleSheet("color: #000;")
+            self.excel_file_for_doc = file_path
+            self.check_files_ready()
+    
+    def browse_word_template(self):
+        """
+        选择Word模板文件
+        """
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择Word模板文件", "", "Word文档 (*.docx)"
+        )
+        
+        if file_path:
+            self.word_path_label.setText(os.path.basename(file_path))
+            self.word_path_label.setStyleSheet("color: #000;")
+            self.word_template_file = file_path
+            self.check_files_ready()
+    
+    def check_files_ready(self):
+        """
+        检查文件是否都已选择，启用处理按钮
+        """
+        if (hasattr(self, 'excel_file_for_doc') and 
+            hasattr(self, 'word_template_file')):
+            self.process_doc_btn.setEnabled(True)
+        else:
+            self.process_doc_btn.setEnabled(False)
+    
+    def process_documents(self):
+        """
+        处理文档 - 将Excel数据填充到Word表格
+        """
+        try:
+            # 获取处理参数
+            fill_rows = int(self.fill_rows_input.text() or "5")
+            table_index = int(self.table_index_input.text() or "0")
+            
+            self.doc_result_text.clear()
+            self.doc_result_text.append("开始处理文档...")
+            self.process_doc_btn.setEnabled(False)
+            
+            # 生成临时输出路径
+            temp_output_path = os.path.join(
+                os.path.dirname(self.word_template_file),
+                f"temp_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+            )
+            
+            # 获取字段映射
+            column_mapping = create_default_column_mapping()
+            
+            # 执行文档处理
+            result = self.document_processor.process_documents(
+                excel_path=self.excel_file_for_doc,
+                word_template_path=self.word_template_file,
+                output_path=temp_output_path,
+                max_rows=fill_rows,
+                table_index=table_index,
+                column_mapping=column_mapping
+            )
+            
+            if result['success']:
+                self.processed_doc_path = result['output_path']
+                self.doc_result_text.append(f"✅ 文档处理成功！")
+                self.doc_result_text.append(f"📄 处理了 {result['rows_filled']} 行数据")
+                self.doc_result_text.append(f"💾 输出文件: {os.path.basename(result['output_path'])}")
+                self.download_btn.setEnabled(True)
+                self.status_bar.showMessage("文档处理完成")
+            else:
+                self.doc_result_text.append(f"❌ 处理失败: {result['error']}")
+                self.status_bar.showMessage("文档处理失败")
+                
+        except ValueError as e:
+            QMessageBox.warning(self, "参数错误", f"请输入有效的数字: {str(e)}")
+        except Exception as e:
+            self.doc_result_text.append(f"❌ 处理过程中发生错误: {str(e)}")
+            QMessageBox.critical(self, "处理错误", f"文档处理失败: {str(e)}")
+        finally:
+            self.process_doc_btn.setEnabled(True)
+    
+    def download_processed_doc(self):
+        """
+        下载处理后的文档
+        """
+        if not self.processed_doc_path or not os.path.exists(self.processed_doc_path):
+            QMessageBox.warning(self, "警告", "没有可下载的文档")
+            return
+        
+        # 选择保存位置
+        default_name = f"VAT申报明细表_已填充_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "保存处理后的文档", default_name, "Word文档 (*.docx)"
+        )
+        
+        if save_path:
+            try:
+                # 复制文件到用户选择的位置
+                import shutil
+                shutil.copy2(self.processed_doc_path, save_path)
+                QMessageBox.information(self, "成功", f"文档已保存到:\n{save_path}")
+                self.status_bar.showMessage(f"文档已保存: {os.path.basename(save_path)}")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"保存文档失败: {str(e)}")
 
 def main():
     app = QApplication(sys.argv)

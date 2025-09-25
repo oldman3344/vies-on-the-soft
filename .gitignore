@@ -151,9 +151,19 @@ Desktop.ini
 *.xlsx
 *.csv
 test_*.py
+debug_*.py
+analyze_*.py
 logs/
 temp/
 *.tmp
 
+# Temporary output files
+temp_output_*.docx
+测试*.docx
+*测试*.docx
+
 # Keep spec file for PyInstaller
 !VAT验证工具.spec
+
+# Keep the original template document
+!8月月度及季度申报需要（）.docx
