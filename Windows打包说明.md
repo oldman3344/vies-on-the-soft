@@ -1,4 +1,15 @@
-# Windows EXE 打包说明
+# VAT验证工具 - Windows EXE打包说明
+
+## 📦 概述
+
+本项目已配置完整的Windows EXE打包流程，支持通过GitHub Actions自动构建或本地构建。
+
+## 🔧 最新修复 (2024-09-25)
+
+- ✅ **修复图标问题**：解决了PyInstaller构建时找不到图标文件的错误
+- ✅ **添加应用图标**：创建了专业的SVG图标文件 (`icon.svg`)
+- ✅ **优化构建流程**：改进了GitHub Actions配置，增加了错误处理
+- ✅ **跨平台支持**：确保Windows、Linux、macOS都能正常构建
 
 ## 📦 获取Windows可执行文件的方法
 

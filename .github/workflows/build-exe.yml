@@ -27,7 +27,14 @@ jobs:
     
     - name: Build EXE with PyInstaller
       run: |
-        pyinstaller "VAT验证工具-Windows.spec"
+        echo "检查spec文件是否存在..."
+        if (Test-Path "VAT验证工具-Windows.spec") {
+          echo "使用Windows专用spec文件"
+          pyinstaller "VAT验证工具-Windows.spec"
+        } else {
+          echo "Windows专用spec文件不存在，使用默认spec文件"
+          pyinstaller "VAT验证工具.spec"
+        }
     
     - name: Upload EXE artifact
       uses: actions/upload-artifact@v4
