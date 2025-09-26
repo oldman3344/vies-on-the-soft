@@ -6,7 +6,6 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('field_mappings', 'field_mappings'),  # 包含字段映射配置文件夹
         ('favicon.ico', '.'),  # 包含图标文件
     ],
     hiddenimports=[
