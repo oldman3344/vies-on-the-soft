@@ -2,11 +2,27 @@
 
 
 a = Analysis(
-    ['vat_validator.py'],
+    ['vat_validator_gui.py'],  # 使用GUI版本作为主入口
     pathex=[],
     binaries=[],
-    datas=[],
-    hiddenimports=[],
+    datas=[
+        ('field_mappings', 'field_mappings'),  # 包含字段映射配置文件夹
+        ('favicon.ico', '.'),  # 包含图标文件
+    ],
+    hiddenimports=[
+        'PyQt5.QtCore',
+        'PyQt5.QtGui', 
+        'PyQt5.QtWidgets',
+        'openpyxl',
+        'pandas',
+        'docx',
+        'requests',
+        'Pillow',
+        'PIL',
+        'document_processor',  # 确保包含文档处理模块
+        'vat_validator',       # 确保包含VAT验证模块
+        'vat_validator_cli',   # 确保包含CLI模块
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -29,12 +45,13 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,
+    console=False,  # 不显示控制台窗口
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='favicon.ico',  # 添加图标文件
 )
 app = BUNDLE(
     exe,
