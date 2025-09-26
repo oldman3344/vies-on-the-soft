@@ -436,9 +436,10 @@ class DocumentProcessor:
     
     def process_documents(self, excel_path: str, word_template_path: str, 
                          output_path: str, sheet_name: Optional[str] = None,
-                         column_mapping: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+                         column_mapping: Optional[Dict[str, str]] = None,
+                         processing_mode: str = "single") -> Dict[str, Any]:
         """
-        完整的文档处理流程 - 自动处理所有有效数据行
+        完整的文档处理流程 - 支持单个和多个处理模式
         
         Args:
             excel_path: Excel文件路径
@@ -446,6 +447,7 @@ class DocumentProcessor:
             output_path: 输出文件路径
             sheet_name: Excel工作表名称，如果为None则使用第一个工作表
             column_mapping: 列映射
+            processing_mode: 处理模式，"single"按公司名称分组，"multiple"按群名称分组
             
         Returns:
             包含处理结果的字典
@@ -464,17 +466,46 @@ class DocumentProcessor:
                 }
             
             logger.info(f"🎯 将处理所有检测到的 {len(excel_data)} 行有效数据")
+            logger.info(f"📋 处理模式: {processing_mode}")
             
             # 2. 分析Word文档
             word_analysis = self.analyze_word_document(word_template_path)
             
-            # 3. 生成输出路径（如果未提供）
+            # 3. 根据处理模式进行分组处理
+            if processing_mode == "single":
+                # 按公司名称分组，每个公司生成一个文档
+                return self._process_by_company(excel_data, word_template_path, output_path, column_mapping)
+            elif processing_mode == "multiple":
+                # 按群名称分组，同一群生成一个文档
+                return self._process_by_group(excel_data, word_template_path, output_path, column_mapping)
+            else:
+                # 默认处理（原有逻辑）
+                return self._process_single_document(excel_data, word_template_path, output_path, column_mapping)
+            
+        except Exception as e:
+            logger.error(f"文档处理过程中出错: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'output_path': None,
+                'rows_filled': 0,
+                'total_rows_detected': 0
+            }
+    
+    def _process_single_document(self, excel_data: List[Dict[str, Any]], 
+                               word_template_path: str, output_path: str,
+                               column_mapping: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """
+        处理单个文档（原有逻辑）
+        """
+        try:
+            # 生成输出路径（如果未提供）
             if not output_path:
                 base_name = os.path.splitext(os.path.basename(word_template_path))[0]
                 output_dir = os.path.dirname(word_template_path)
                 output_path = os.path.join(output_dir, f"{base_name}_已填充.docx")
             
-            # 4. 填充Word表格
+            # 填充Word表格
             result_path = self.fill_word_table(
                 word_template_path, 
                 excel_data, 
@@ -491,17 +522,202 @@ class DocumentProcessor:
                 'rows_filled': len(excel_data),
                 'total_rows_detected': len(excel_data)
             }
-            
         except Exception as e:
-            logger.error(f"文档处理过程中出错: {e}")
+            logger.error(f"单文档处理出错: {e}")
             return {
                 'success': False,
                 'error': str(e),
                 'output_path': None,
                 'rows_filled': 0,
-                'total_rows_detected': 0
+                'total_rows_detected': len(excel_data)
             }
-
+    
+    def _process_by_company(self, excel_data: List[Dict[str, Any]], 
+                          word_template_path: str, output_path: str,
+                          column_mapping: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """
+        按公司名称分组处理，每个公司生成一个文档
+        """
+        try:
+            # 按公司名称分组
+            company_groups = {}
+            company_field = '公司名称'
+            
+            for row in excel_data:
+                company_name = row.get(company_field, '').strip()
+                if not company_name:
+                    company_name = '未知公司'
+                
+                if company_name not in company_groups:
+                    company_groups[company_name] = []
+                company_groups[company_name].append(row)
+            
+            logger.info(f"📊 按公司名称分组，共 {len(company_groups)} 个公司")
+            
+            # 为每个公司生成文档
+            output_dir = os.path.dirname(output_path)
+            base_name = os.path.splitext(os.path.basename(output_path))[0]
+            generated_files = []
+            total_rows = 0
+            
+            for company_name, company_data in company_groups.items():
+                # 生成安全的文件名
+                safe_company_name = "".join(c for c in company_name if c.isalnum() or c in (' ', '-', '_')).strip()
+                if not safe_company_name:
+                    safe_company_name = "未知公司"
+                
+                # 智能处理括号：检查是否包含括号并相应处理
+                import re
+                logger.info(f"🔍 调试信息 - 原始base_name: '{base_name}'")
+                logger.info(f"🔍 调试信息 - 公司名称: '{safe_company_name}'")
+                
+                # 检查是否包含中文括号或英文括号
+                has_brackets = ('(' in base_name and ')' in base_name) or ('（' in base_name and '）' in base_name)
+                logger.info(f"🔍 调试信息 - 是否包含括号: {has_brackets}")
+                
+                if has_brackets:
+                    # 如果包含括号，替换整个括号及其内容（支持中文和英文括号）
+                    # 使用正则表达式替换中文括号或英文括号及其内容
+                    new_base_name = re.sub(r'[（(][^）)]*[）)]', f'({safe_company_name})', base_name)
+                    logger.info(f"🔍 调试信息 - 替换后的base_name: '{new_base_name}'")
+                    company_output_path = os.path.join(output_dir, f"{new_base_name}.docx")
+                else:
+                    # 如果不包含括号，添加括号和公司名称
+                    logger.info(f"🔍 调试信息 - 不包含括号，直接添加")
+                    company_output_path = os.path.join(output_dir, f"{base_name}({safe_company_name}).docx")
+                
+                logger.info(f"🔍 调试信息 - 最终文件路径: '{company_output_path}'")
+                
+                # 填充Word表格
+                result_path = self.fill_word_table(
+                    word_template_path, 
+                    company_data, 
+                    company_output_path, 
+                    0, 
+                    column_mapping
+                )
+                
+                generated_files.append(result_path)
+                total_rows += len(company_data)
+                logger.info(f"✅ 已生成 {company_name} 的文档: {os.path.basename(result_path)} ({len(company_data)} 行数据)")
+            
+            return {
+                'success': True,
+                'error': None,
+                'output_path': generated_files[0] if generated_files else None,  # 返回第一个文件路径
+                'generated_files': generated_files,
+                'rows_filled': total_rows,
+                'total_rows_detected': len(excel_data),
+                'groups_count': len(company_groups)
+            }
+            
+        except Exception as e:
+            logger.error(f"按公司分组处理出错: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'output_path': None,
+                'rows_filled': 0,
+                'total_rows_detected': len(excel_data)
+            }
+    
+    def _process_by_group(self, excel_data: List[Dict[str, Any]], 
+                        word_template_path: str, output_path: str,
+                        column_mapping: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """
+        按群名称分组处理，同一群的数据生成一个文档
+        """
+        try:
+            # 按群名称分组
+            group_groups = {}
+            group_field = '群名称'
+            company_field = '公司名称'
+            
+            for row in excel_data:
+                group_name = row.get(group_field, '').strip()
+                if not group_name:
+                    # 如果没有群名称，使用公司名称作为群名称
+                    group_name = row.get(company_field, '').strip()
+                    if not group_name:
+                        group_name = '未知群组'
+                
+                if group_name not in group_groups:
+                    group_groups[group_name] = []
+                group_groups[group_name].append(row)
+            
+            logger.info(f"📊 按群名称分组，共 {len(group_groups)} 个群组")
+            
+            # 为每个群组生成文档
+            output_dir = os.path.dirname(output_path)
+            base_name = os.path.splitext(os.path.basename(output_path))[0]
+            generated_files = []
+            total_rows = 0
+            
+            for group_name, group_data in group_groups.items():
+                # 获取群组中第一个公司名称用于文件名
+                first_company = ""
+                for row in group_data:
+                    company_name = row.get(company_field, '').strip()
+                    if company_name:
+                        first_company = company_name
+                        break
+                
+                if not first_company:
+                    first_company = "未知公司"
+                
+                # 生成安全的文件名
+                safe_group_name = "".join(c for c in group_name if c.isalnum() or c in (' ', '-', '_')).strip()
+                safe_company_name = "".join(c for c in first_company if c.isalnum() or c in (' ', '-', '_')).strip()
+                
+                if not safe_group_name:
+                    safe_group_name = "未知群组"
+                if not safe_company_name:
+                    safe_company_name = "未知公司"
+                
+                # 智能处理括号：检查是否包含括号并相应处理
+                import re
+                # 检查是否包含中文括号或英文括号
+                if ('(' in base_name and ')' in base_name) or ('（' in base_name and '）' in base_name):
+                    # 如果包含括号，替换整个括号及其内容（支持中文和英文括号）
+                    # 使用群组中第一个公司的名称作为文件名
+                    new_base_name = re.sub(r'[（(][^）)]*[）)]', f'({safe_company_name})', base_name)
+                    group_output_path = os.path.join(output_dir, f"{new_base_name}.docx")
+                else:
+                    # 如果不包含括号，添加括号和第一个公司名称
+                    group_output_path = os.path.join(output_dir, f"{base_name}({safe_company_name}).docx")
+                
+                # 填充Word表格
+                result_path = self.fill_word_table(
+                    word_template_path, 
+                    group_data, 
+                    group_output_path, 
+                    0, 
+                    column_mapping
+                )
+                
+                generated_files.append(result_path)
+                total_rows += len(group_data)
+                logger.info(f"✅ 已生成群组 {group_name} 的文档: {os.path.basename(result_path)} ({len(group_data)} 行数据)")
+            
+            return {
+                'success': True,
+                'error': None,
+                'output_path': generated_files[0] if generated_files else None,  # 返回第一个文件路径
+                'generated_files': generated_files,
+                'rows_filled': total_rows,
+                'total_rows_detected': len(excel_data),
+                'groups_count': len(group_groups)
+            }
+            
+        except Exception as e:
+            logger.error(f"按群组分组处理出错: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'output_path': None,
+                'rows_filled': 0,
+                'total_rows_detected': len(excel_data)
+            }
 
 def create_default_column_mapping() -> Dict[str, str]:
     """

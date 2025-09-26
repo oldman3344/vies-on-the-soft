@@ -1126,16 +1126,45 @@ class VATValidatorGUI(QMainWindow):
         options_group = QGroupBox("处理选项")
         options_layout = QGridLayout(options_group)
         
-        # 添加自动检测说明
-        auto_detect_label = QLabel("📊 自动检测模式：程序将自动识别并处理Excel中所有有效数据行")
-        auto_detect_label.setStyleSheet("color: #2E8B57; font-weight: bold; padding: 8px; background-color: #F0FFF0; border-radius: 4px;")
-        options_layout.addWidget(auto_detect_label, 0, 0, 1, 2)
+        # 添加处理模式选择
+        mode_label = QLabel("处理模式:")
+        options_layout.addWidget(mode_label, 0, 0)
         
-        options_layout.addWidget(QLabel("Excel工作表:"), 1, 0)
+        # 创建单选按钮
+        from PyQt5.QtWidgets import QRadioButton, QButtonGroup
+        self.processing_mode_group = QButtonGroup()
+        
+        self.single_mode_radio = QRadioButton("单个处理")
+        self.single_mode_radio.setToolTip("按公司名称分组，每个公司生成一个Word文档")
+        self.single_mode_radio.setChecked(True)  # 默认选中
+        self.processing_mode_group.addButton(self.single_mode_radio, 0)
+        options_layout.addWidget(self.single_mode_radio, 0, 1)
+        
+        self.multiple_mode_radio = QRadioButton("多个处理")
+        self.multiple_mode_radio.setToolTip("按群名称分组，同一群的数据生成一个Word文档")
+        self.processing_mode_group.addButton(self.multiple_mode_radio, 1)
+        options_layout.addWidget(self.multiple_mode_radio, 0, 2)
+        
+        # 添加模式说明
+        mode_desc_label = QLabel("💡 单个处理：按公司名称分组，每个公司一个文档\n💡 多个处理：按群名称分组，同一群的数据合并到一个文档")
+        mode_desc_label.setStyleSheet("color: #666; font-size: 12px; padding: 5px; background-color: #f9f9f9; border-radius: 3px;")
+        options_layout.addWidget(mode_desc_label, 1, 0, 1, 3)
+        
+        options_layout.addWidget(QLabel("Excel工作表:"), 2, 0)
         self.sheet_selector = QComboBox()
         self.sheet_selector.setPlaceholderText("选择Excel工作表")
         self.sheet_selector.addItem("默认第一个工作表", None)
-        options_layout.addWidget(self.sheet_selector, 1, 1)
+        options_layout.addWidget(self.sheet_selector, 2, 1)
+        
+        # 添加保存位置选择
+        options_layout.addWidget(QLabel("保存位置:"), 3, 0)
+        self.output_path_label = QLabel("未选择保存位置")
+        self.output_path_label.setStyleSheet("color: #666; font-style: italic;")
+        options_layout.addWidget(self.output_path_label, 3, 1)
+        
+        self.browse_output_btn = QPushButton("选择保存位置")
+        self.browse_output_btn.clicked.connect(self.browse_output_location)
+        options_layout.addWidget(self.browse_output_btn, 3, 2)
         
         layout.addWidget(options_group)
         
@@ -1150,12 +1179,6 @@ class VATValidatorGUI(QMainWindow):
         self.process_doc_btn.clicked.connect(self.process_documents)
         self.process_doc_btn.setEnabled(False)
         button_layout.addWidget(self.process_doc_btn)
-        
-        # 保存按钮
-        self.save_btn = QPushButton("保存处理后的文档")
-        self.save_btn.clicked.connect(self.save_processed_doc)
-        self.save_btn.setEnabled(False)
-        button_layout.addWidget(self.save_btn)
         
         button_layout.addStretch()
         process_layout.addLayout(button_layout)
@@ -1184,6 +1207,17 @@ class VATValidatorGUI(QMainWindow):
         self.doc_result_text.setMaximumHeight(300)
         self.doc_result_text.setReadOnly(True)
         result_layout.addWidget(self.doc_result_text)
+        
+        # 快捷操作按钮
+        button_layout = QHBoxLayout()
+        
+        self.open_folder_btn = QPushButton("📂 打开文件夹")
+        self.open_folder_btn.setEnabled(False)
+        self.open_folder_btn.clicked.connect(self.open_output_folder)
+        button_layout.addWidget(self.open_folder_btn)
+        
+        button_layout.addStretch()
+        result_layout.addLayout(button_layout)
         
         layout.addWidget(result_group)
         
@@ -1258,16 +1292,93 @@ class VATValidatorGUI(QMainWindow):
             self.word_template_file = file_path
             self.check_files_ready()
     
+    def browse_output_location(self):
+        """
+        选择输出文件保存位置
+        """
+        # 基于Word模板名称生成默认文件名
+        if hasattr(self, 'word_template_file') and self.word_template_file:
+            template_base_name = os.path.splitext(os.path.basename(self.word_template_file))[0]
+            
+            # 智能处理括号：如果模板名称已包含括号，则直接使用；否则添加括号
+            import re
+            if ('(' in template_base_name and ')' in template_base_name) or ('（' in template_base_name and '）' in template_base_name):
+                # 如果已包含括号，替换括号内容为"公司名称"
+                default_name = re.sub(r'[（(][^）)]*[）)]', '(公司名称)', template_base_name) + ".docx"
+            else:
+                # 如果不包含括号，添加括号和"公司名称"
+                default_name = f"{template_base_name}(公司名称).docx"
+        else:
+            default_name = "VAT申报明细表(公司名称).docx"
+            
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "选择保存位置", default_name, "Word文档 (*.docx)"
+        )
+        
+        if save_path:
+            # 显示文件夹路径而不是文件名
+            folder_path = os.path.dirname(save_path)
+            self.output_path_label.setText(folder_path)
+            self.output_path_label.setStyleSheet("color: #000;")
+            self.output_file_path = save_path
+            self.check_files_ready()
+    
     def check_files_ready(self):
         """
         检查文件是否都已选择，启用处理按钮
         """
         if (hasattr(self, 'excel_file_for_doc') and 
-            hasattr(self, 'word_template_file')):
+            hasattr(self, 'word_template_file') and
+            hasattr(self, 'output_file_path')):
             self.process_doc_btn.setEnabled(True)
         else:
             self.process_doc_btn.setEnabled(False)
     
+    def _get_file_size(self, file_path):
+        """获取文件大小的友好显示格式"""
+        try:
+            if not file_path or not os.path.exists(file_path):
+                return "未知"
+            
+            size_bytes = os.path.getsize(file_path)
+            
+            # 转换为合适的单位
+            if size_bytes < 1024:
+                return f"{size_bytes} B"
+            elif size_bytes < 1024 * 1024:
+                return f"{size_bytes / 1024:.1f} KB"
+            elif size_bytes < 1024 * 1024 * 1024:
+                return f"{size_bytes / (1024 * 1024):.1f} MB"
+            else:
+                return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+        except Exception:
+            return "未知"
+    
+    def open_output_folder(self):
+        """打开输出文件夹"""
+        try:
+            if hasattr(self, 'last_output_path') and self.last_output_path:
+                output_dir = os.path.dirname(self.last_output_path)
+                if os.path.exists(output_dir):
+                    # 根据操作系统打开文件夹
+                    import subprocess
+                    import platform
+                    
+                    system = platform.system()
+                    if system == "Darwin":  # macOS
+                        subprocess.run(["open", output_dir])
+                    elif system == "Windows":
+                        subprocess.run(["explorer", output_dir])
+                    else:  # Linux
+                        subprocess.run(["xdg-open", output_dir])
+                else:
+                    QMessageBox.warning(self, "警告", "输出文件夹不存在")
+            else:
+                QMessageBox.information(self, "提示", "没有可打开的文件夹")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"打开文件夹失败: {str(e)}")
+    
+
     def process_documents(self):
         """
         处理文档 - 将Excel数据填充到Word表格
@@ -1278,11 +1389,11 @@ class VATValidatorGUI(QMainWindow):
                 QMessageBox.information(self, "提示", "文档正在处理中，请稍候...")
                 return
             
-            # 检查是否已有处理结果，询问是否重新处理
-            if hasattr(self, 'processed_doc_path') and self.processed_doc_path:
+            # 检查输出文件是否已存在，询问是否覆盖
+            if os.path.exists(self.output_file_path):
                 reply = QMessageBox.question(
-                    self, "确认重新处理", 
-                    "已有处理完成的文档，是否要重新处理？\n重新处理将覆盖之前的结果。",
+                    self, "文件已存在", 
+                    f"文件 {os.path.basename(self.output_file_path)} 已存在，是否覆盖？",
                     QMessageBox.Yes | QMessageBox.No,
                     QMessageBox.No
                 )
@@ -1299,16 +1410,12 @@ class VATValidatorGUI(QMainWindow):
             self.doc_result_text.append(f"🔄 开始处理文档... [{start_time.strftime('%Y-%m-%d %H:%M:%S')}]")
             self.process_doc_btn.setEnabled(False)
             self.process_doc_btn.setText("处理中...")
-            self.save_btn.setEnabled(False)
             
             # 显示状态
             self.process_status_label.setText("正在处理文档，请稍候...")
             
-            # 生成临时输出路径
-            temp_output_path = os.path.join(
-                os.path.dirname(self.word_template_file),
-                f"temp_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
-            )
+            # 使用用户选择的输出路径
+            output_path = self.output_file_path
             
             # 获取字段映射
             column_mapping = create_default_column_mapping()
@@ -1316,44 +1423,93 @@ class VATValidatorGUI(QMainWindow):
             self.doc_result_text.append(f"📊 使用工作表: {selected_sheet or '默认第一个工作表'}")
             self.process_status_label.setText("正在读取Excel数据...")
             
+            # 获取处理模式
+            processing_mode = "single" if self.single_mode_radio.isChecked() else "multiple"
+            self.doc_result_text.append(f"🔧 处理模式: {'单个处理（按公司名称分组）' if processing_mode == 'single' else '多个处理（按群名称分组）'}")
+            
             # 执行文档处理
             result = self.document_processor.process_documents(
                 excel_path=self.excel_file_for_doc,
                 word_template_path=self.word_template_file,
-                output_path=temp_output_path,
+                output_path=output_path,
                 sheet_name=selected_sheet,
-                column_mapping=column_mapping
+                column_mapping=column_mapping,
+                processing_mode=processing_mode
             )
             
             if result['success']:
                 end_time = datetime.now()
-                self.processed_doc_path = result['output_path']
+                processing_time = (end_time - start_time).total_seconds()
+                
                 self.doc_result_text.append(f"✅ 文档处理成功！ [{end_time.strftime('%Y-%m-%d %H:%M:%S')}]")
-                self.doc_result_text.append(f"📄 处理了 {result['rows_filled']} 行数据")
-                self.doc_result_text.append(f"💾 临时文件: {os.path.basename(result['output_path'])}")
-                self.doc_result_text.append(f"📁 文件位置: {os.path.dirname(result['output_path'])}")
+                self.doc_result_text.append(f"⏱️ 处理耗时: {processing_time:.2f} 秒")
+                self.doc_result_text.append(f"📊 数据统计:")
+                self.doc_result_text.append(f"   • 总数据行数: {result.get('total_rows_detected', 0)}")
+                self.doc_result_text.append(f"   • 已处理行数: {result['rows_filled']}")
                 
-                # 启用保存按钮
-                self.save_btn.setEnabled(True)
+                # 根据处理模式显示不同的详细信息
+                if processing_mode == "single":
+                    self.doc_result_text.append(f"📄 处理模式: 单个文档处理")
+                    self.doc_result_text.append(f"💾 生成文件: {os.path.basename(result['output_path'])}")
+                    file_size = self._get_file_size(result['output_path'])
+                    self.doc_result_text.append(f"📏 文件大小: {file_size}")
+                    
+                elif processing_mode == "company":
+                    self.doc_result_text.append(f"📄 处理模式: 按公司分组处理")
+                    self.doc_result_text.append(f"🏢 生成公司文档数: {result.get('groups_count', 0)}")
+                    self.doc_result_text.append(f"📁 生成的文件:")
+                    for i, file_path in enumerate(result.get('generated_files', []), 1):
+                        file_size = self._get_file_size(file_path)
+                        self.doc_result_text.append(f"   {i}. {os.path.basename(file_path)} ({file_size})")
+                        
+                elif processing_mode == "group":
+                    self.doc_result_text.append(f"📄 处理模式: 按群组分组处理")
+                    self.doc_result_text.append(f"👥 生成群组文档数: {result.get('groups_count', 0)}")
+                    self.doc_result_text.append(f"📁 生成的文件:")
+                    for i, file_path in enumerate(result.get('generated_files', []), 1):
+                        file_size = self._get_file_size(file_path)
+                        self.doc_result_text.append(f"   {i}. {os.path.basename(file_path)} ({file_size})")
                 
-                self.process_status_label.setText("处理完成！可以保存文档")
-                self.status_bar.showMessage("文档处理完成")
+                # 显示文件位置
+                output_dir = os.path.dirname(result['output_path']) if result['output_path'] else ""
+                self.doc_result_text.append(f"📂 文件位置: {output_dir}")
+                self.doc_result_text.append("=" * 50)
+                
+                self.process_status_label.setText("处理完成！文档已保存")
+                
+                # 保存输出路径并启用快捷按钮
+                self.last_output_path = result['output_path']
+                self.open_folder_btn.setEnabled(True)
+                
+                # 状态栏显示简要信息
+                if processing_mode == "single":
+                    self.status_bar.showMessage(f"文档已保存: {os.path.basename(result['output_path'])}")
+                else:
+                    file_count = len(result.get('generated_files', []))
+                    self.status_bar.showMessage(f"已生成 {file_count} 个文档，处理 {result['rows_filled']} 行数据")
             else:
                 error_time = datetime.now()
                 self.doc_result_text.append(f"❌ 处理失败: {result['error']} [{error_time.strftime('%Y-%m-%d %H:%M:%S')}]")
                 self.process_status_label.setText("处理失败")
                 self.status_bar.showMessage("文档处理失败")
                 
+                # 禁用快捷按钮
+                self.open_folder_btn.setEnabled(False)
+                
         except ValueError as e:
             error_time = datetime.now()
             self.doc_result_text.append(f"❌ 参数错误: {str(e)} [{error_time.strftime('%Y-%m-%d %H:%M:%S')}]")
             QMessageBox.warning(self, "参数错误", f"请输入有效的数字: {str(e)}")
             self.process_status_label.setText("参数错误")
+            # 禁用快捷按钮
+            self.open_folder_btn.setEnabled(False)
         except Exception as e:
             error_time = datetime.now()
             self.doc_result_text.append(f"❌ 处理过程中发生错误: {str(e)} [{error_time.strftime('%Y-%m-%d %H:%M:%S')}]")
             QMessageBox.critical(self, "处理错误", f"文档处理失败: {str(e)}")
             self.process_status_label.setText("处理出错")
+            # 禁用快捷按钮
+            self.open_folder_btn.setEnabled(False)
         finally:
             # 恢复UI状态
             self.is_processing = False
@@ -1361,57 +1517,7 @@ class VATValidatorGUI(QMainWindow):
             self.process_doc_btn.setText("开始处理文档")
             self.process_status_label.setText("")
     
-    def save_processed_doc(self):
-        """
-        保存处理后的文档到用户指定位置
-        """
-        if not self.processed_doc_path or not os.path.exists(self.processed_doc_path):
-            QMessageBox.warning(self, "警告", "没有可保存的文档")
-            return
-        
-        # 选择保存位置
-        default_name = f"VAT申报明细表_已填充_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
-        save_path, _ = QFileDialog.getSaveFileName(
-            self, "保存处理后的文档", default_name, "Word文档 (*.docx)"
-        )
-        
-        if save_path:
-            try:
-                # 检查文件是否已存在
-                if os.path.exists(save_path):
-                    reply = QMessageBox.question(
-                        self, "文件已存在", 
-                        f"文件 {os.path.basename(save_path)} 已存在，是否覆盖？",
-                        QMessageBox.Yes | QMessageBox.No,
-                        QMessageBox.No
-                    )
-                    if reply == QMessageBox.No:
-                        return
-                
-                # 复制文件到用户选择的位置
-                shutil.copy2(self.processed_doc_path, save_path)
-                
-                # 询问是否删除临时文件
-                reply = QMessageBox.question(
-                    self, "保存成功", 
-                    f"文档已保存到:\n{save_path}\n\n是否删除临时文件？",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.Yes
-                )
-                
-                if reply == QMessageBox.Yes:
-                    try:
-                        os.remove(self.processed_doc_path)
-                        self.doc_result_text.append("🗑️ 临时文件已删除")
-                        self.processed_doc_path = save_path  # 更新为新的文件路径
-                    except Exception as e:
-                        self.doc_result_text.append(f"⚠️ 删除临时文件失败: {str(e)}")
-                
-                self.status_bar.showMessage(f"文档已保存: {os.path.basename(save_path)}")
-                self.doc_result_text.append(f"💾 文档已保存到: {save_path}")
-                
-            except Exception as e:
-                QMessageBox.critical(self, "错误", f"保存文档失败: {str(e)}")
+
 
 
 def main():
