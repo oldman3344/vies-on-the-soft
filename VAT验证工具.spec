@@ -7,20 +7,68 @@ a = Analysis(
     binaries=[],
     datas=[
         ('favicon.ico', '.'),  # 包含图标文件
+        ('field_mappings', 'field_mappings'),  # 包含字段映射目录
     ],
     hiddenimports=[
+        # PyQt5 核心模块
         'PyQt5.QtCore',
         'PyQt5.QtGui', 
         'PyQt5.QtWidgets',
+        'PyQt5.QtPrintSupport',
+        
+        # 数据处理模块
         'openpyxl',
+        'openpyxl.workbook',
+        'openpyxl.worksheet',
+        'openpyxl.styles',
+        'openpyxl.utils',
         'pandas',
+        'pandas.core',
+        'pandas.io',
+        'pandas.io.excel',
+        
+        # 文档处理模块
         'docx',
+        'docx.shared',
+        'docx.enum',
+        'docx.enum.text',
+        'docx.oxml',
+        'docx.oxml.parser',
+        'docx.oxml.ns',
+        
+        # 网络请求模块
         'requests',
+        'requests.adapters',
+        'requests.auth',
+        'requests.cookies',
+        'requests.models',
+        'requests.sessions',
+        'urllib3',
+        
+        # 图像处理模块
         'Pillow',
         'PIL',
-        'document_processor',  # 确保包含文档处理模块
-        'vat_validator',       # 确保包含VAT验证模块
-        'vat_validator_cli',   # 确保包含CLI模块
+        'PIL.Image',
+        'PIL.ImageTk',
+        
+        # 系统和工具模块
+        'json',
+        'datetime',
+        'threading',
+        'concurrent',
+        'concurrent.futures',
+        'logging',
+        'typing',
+        'pathlib',
+        'shutil',
+        'os',
+        'sys',
+        'time',
+        
+        # 项目自定义模块
+        'document_processor',  # 文档处理模块
+        'vat_validator',       # VAT验证模块
+        'vat_validator_cli',   # CLI模块
     ],
     hookspath=[],
     hooksconfig={},

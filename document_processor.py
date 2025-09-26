@@ -27,6 +27,8 @@ class DocumentProcessor:
     def __init__(self):
         self.excel_data = None
         self.word_doc = None
+        self._template_cache = {}  # 模板内容缓存
+        self._last_template_path = None  # 上次使用的模板路径
     
     def set_table_borders(self, table):
         """
@@ -113,12 +115,13 @@ class DocumentProcessor:
         except Exception as e:
             logger.warning(f"设置行虚线边框时出错: {e}")
 
-    def add_material_info_row(self, table):
+    def add_material_info_row(self, table, template_content=None):
         """
         在表格末尾添加申报材料说明行
         
         Args:
             table: Word表格对象
+            template_content: 模板中的申报材料说明内容，如果为None则使用默认内容
         """
         try:
             # 添加新行
@@ -149,7 +152,14 @@ class DocumentProcessor:
             title_run.font.color.rgb = None  # 黑色（默认）
             
             # 第二部分：括号内容 - 红色加粗，与标题字体大小一致
-            content_run = paragraph.add_run("（下载时间：9月03号开始，请在9月05日前提供，如不及时申报，平台造成的后果smk不承任何责任）")
+            # 如果提供了模板内容，使用模板内容；否则使用默认内容
+            if template_content:
+                content_text = template_content
+            else:
+                # 默认内容（与图片中一致）
+                content_text = "（下载时间：10月03号开始，请在10月05日前提供，如不及时申报，平台造成的后果smk不承任何责任）"
+            
+            content_run = paragraph.add_run(content_text)
             content_run.font.size = Pt(12)  # 与标题字体大小一致
             content_run.font.name = '宋体'
             content_run.font.bold = True  # 加粗
@@ -165,6 +175,86 @@ class DocumentProcessor:
             
         except Exception as e:
             logger.warning(f"添加申报材料说明行时出错: {e}")
+    
+    def extract_material_info_from_template(self, word_path: str) -> Optional[str]:
+        """
+        从Word模板中提取申报材料说明的原始内容
+        
+        Args:
+            word_path: Word模板文件路径
+            
+        Returns:
+            申报材料说明内容，如果没有找到则返回None
+        """
+        try:
+            logger.info(f"正在从模板文件提取申报材料说明: {word_path}")
+            
+            # 检查模板路径是否发生变化，如果变化则清除缓存
+            if self._last_template_path != word_path:
+                logger.info(f"检测到模板路径变化: {self._last_template_path} -> {word_path}")
+                logger.info(f"清除缓存前，缓存项数: {len(self._template_cache)}")
+                self._template_cache.clear()
+                logger.info("✅ 因路径变化已清除缓存")
+                self._last_template_path = word_path
+            
+            # 检查缓存
+            if word_path in self._template_cache:
+                cached_content = self._template_cache[word_path]
+                logger.info("📋 从缓存中获取模板内容")
+                logger.info(f"📋 缓存内容预览: {cached_content[:50] if cached_content else 'None'}...")
+                return cached_content
+            
+            # 确保文件存在
+            if not os.path.exists(word_path):
+                logger.error(f"模板文件不存在: {word_path}")
+                return None
+            
+            # 创建新的Document对象，确保读取最新的文件内容
+            doc = Document(word_path)
+            
+            # 遍历所有表格，查找包含"申报需提供以下材料"的行
+            for table_idx, table in enumerate(doc.tables):
+                for row_idx, row in enumerate(table.rows):
+                    for cell_idx, cell in enumerate(row.cells):
+                        cell_text = cell.text.strip()
+                        if "申报需提供以下材料" in cell_text:
+                            logger.info(f"在表格{table_idx}的第{row_idx}行第{cell_idx}列找到申报材料说明")
+                            # 找到了申报材料说明行，提取括号内的内容
+                            if "（" in cell_text and "）" in cell_text:
+                                start_idx = cell_text.find("（")
+                                end_idx = cell_text.find("）") + 1
+                                if start_idx != -1 and end_idx != -1:
+                                    template_content = cell_text[start_idx:end_idx]
+                                    logger.info(f"从模板中提取到申报材料说明: {template_content}")
+                                    # 存入缓存
+                                    self._template_cache[word_path] = template_content
+                                    # 显式清理文档对象
+                                    doc = None
+                                    return template_content
+            
+            logger.info("模板中未找到申报材料说明，将使用默认内容")
+            # 存入缓存（None值也要缓存，避免重复读取）
+            self._template_cache[word_path] = None
+            # 显式清理文档对象
+            doc = None
+            return None
+            
+        except Exception as e:
+            logger.warning(f"从模板提取申报材料说明时出错: {e}")
+            return None
+    
+    def clear_template_cache(self):
+        """
+        清除模板缓存
+        当用户选择新的模板文件时应该调用此方法
+        """
+        cache_count = len(self._template_cache)
+        logger.info(f"清除模板缓存，当前缓存项数: {cache_count}")
+        if cache_count > 0:
+            logger.info(f"缓存的模板路径: {list(self._template_cache.keys())}")
+        self._template_cache.clear()
+        self._last_template_path = None
+        logger.info("✅ 模板缓存已清除")
         
     def extract_excel_data(self, excel_path: str, sheet_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """
@@ -351,12 +441,15 @@ class DocumentProcessor:
             输出文件路径
         """
         try:
+            # 首先从模板中提取申报材料说明内容
+            template_material_info = self.extract_material_info_from_template(word_path)
+            
             # 打开Word文档
             doc = Document(word_path)
             
             if table_index >= len(doc.tables):
                 raise ValueError(f"表格索引 {table_index} 超出范围，文档只有 {len(doc.tables)} 个表格")
-            
+
             table = doc.tables[table_index]
             
             # 如果没有提供列映射，使用默认映射
@@ -421,8 +514,8 @@ class DocumentProcessor:
             # 设置表格边框为实线
             self.set_table_borders(table)
             
-            # 添加申报材料说明行
-            self.add_material_info_row(table)
+            # 添加申报材料说明行，使用从模板提取的内容
+            self.add_material_info_row(table, template_material_info)
             
             # 保存文档
             doc.save(output_path)

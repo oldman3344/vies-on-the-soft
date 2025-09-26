@@ -1287,6 +1287,30 @@ class VATValidatorGUI(QMainWindow):
         )
         
         if file_path:
+            # 获取当前模板路径（如果存在）
+            old_template = getattr(self, 'word_template_file', None)
+            print(f"📁 旧模板路径: {old_template}")
+            print(f"📁 新模板路径: {file_path}")
+            
+            # 检查是否选择了新的模板文件
+            if old_template and old_template != file_path:
+                print(f"🔄 检测到模板文件变更，正在清除缓存...")
+                # 清除模板缓存，确保使用新模板的内容
+                self.document_processor.clear_template_cache()
+                print(f"✅ 缓存已清除，新模板: {os.path.basename(file_path)}")
+                
+                # 清除之前的保存位置设置，强制用户重新选择
+                if hasattr(self, 'output_file_path'):
+                    delattr(self, 'output_file_path')
+                    self.output_path_label.setText("请选择保存位置")
+                    self.output_path_label.setStyleSheet("color: #999;")
+                    print(f"🗂️ 已清除保存位置设置，请重新选择")
+                    
+            elif old_template == file_path:
+                print(f"ℹ️ 选择了相同的模板文件，保持缓存")
+            else:
+                print(f"🆕 首次选择模板文件: {os.path.basename(file_path)}")
+            
             self.word_path_label.setText(os.path.basename(file_path))
             self.word_path_label.setStyleSheet("color: #000;")
             self.word_template_file = file_path
