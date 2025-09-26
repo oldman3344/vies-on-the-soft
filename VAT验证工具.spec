@@ -7,7 +7,6 @@ a = Analysis(
     binaries=[],
     datas=[
         ('favicon.ico', '.'),  # 包含图标文件
-        ('field_mappings', 'field_mappings'),  # 包含字段映射目录
     ],
     hiddenimports=[
         # PyQt5 核心模块
