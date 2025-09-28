@@ -654,8 +654,13 @@ class DocumentProcessor:
             total_rows = 0
             
             for company_name, company_data in company_groups.items():
-                # 生成安全的文件名
-                safe_company_name = "".join(c for c in company_name if c.isalnum() or c in (' ', '-', '_')).strip()
+                # 生成安全的文件名 - 只过滤Windows/macOS不允许的字符
+                # 保留大部分特殊符号，只移除文件系统不支持的字符
+                invalid_chars = ['<', '>', ':', '"', '|', '?', '*', '/', '\\']
+                safe_company_name = company_name
+                for char in invalid_chars:
+                    safe_company_name = safe_company_name.replace(char, '')
+                safe_company_name = safe_company_name.strip()
                 if not safe_company_name:
                     safe_company_name = "未知公司"
                 
@@ -758,9 +763,16 @@ class DocumentProcessor:
                 if not first_company:
                     first_company = "未知公司"
                 
-                # 生成安全的文件名
-                safe_group_name = "".join(c for c in group_name if c.isalnum() or c in (' ', '-', '_')).strip()
-                safe_company_name = "".join(c for c in first_company if c.isalnum() or c in (' ', '-', '_')).strip()
+                # 生成安全的文件名 - 只过滤Windows/macOS不允许的字符
+                # 保留大部分特殊符号，只移除文件系统不支持的字符
+                invalid_chars = ['<', '>', ':', '"', '|', '?', '*', '/', '\\']
+                safe_group_name = group_name
+                safe_company_name = first_company
+                for char in invalid_chars:
+                    safe_group_name = safe_group_name.replace(char, '')
+                    safe_company_name = safe_company_name.replace(char, '')
+                safe_group_name = safe_group_name.strip()
+                safe_company_name = safe_company_name.strip()
                 
                 if not safe_group_name:
                     safe_group_name = "未知群组"
